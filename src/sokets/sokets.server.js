@@ -43,7 +43,19 @@ async function initializeSokets(httpServer) {
                     role: "user"
                 });
 
-                const response = await genrateResponse(payload.title)
+                const chatHistory = (await messageModel
+                    .find({ chat: payload.chatId })
+                    .sort({ createdAt: -1 })
+                    .limit(10)
+                    .lean())
+                    .reverse();
+
+                const response = await genrateResponse(chatHistory.map((item) => {
+                    return {
+                        role: item.role,
+                        parts: [{ text: item.content }]
+                    }
+                }));
 
                 await messageModel.create({
                     user: socket.user._id,
