@@ -8,9 +8,21 @@ async function genrateResponse(prompt) {
     contents: prompt,
   });
   return response.text
-}
+};
+
+
+async function genrateEmmbeding(content) {
+  const response = await ai.models.embedContent({
+    model: 'gemini-embedding-001',
+    contents: content,
+    config:{
+      outputDimensionality:768
+    }
+  });
+
+  return response.embeddings[0].values
+};
 
 
 
-
-module.exports = genrateResponse;
+module.exports = {genrateResponse,genrateEmmbeding};

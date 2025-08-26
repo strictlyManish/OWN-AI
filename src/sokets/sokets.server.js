@@ -2,8 +2,11 @@ const { Server } = require("socket.io");
 const cookie = require("cookie");
 const userModel = require("../models/user.model");
 const jwt = require("jsonwebtoken");
-const genrateResponse = require("../services/ai.service");
 const messageModel = require("../models/message.model");
+
+const { genrateResponse, genrateEmmbeding } = require("../services/ai.service");
+const { createVectorMemory, queryVectorMemory } = require("../services/vector.service");
+const { text } = require("express");
 
 
 async function initializeSokets(httpServer) {
@@ -33,14 +36,33 @@ async function initializeSokets(httpServer) {
         try {
             socket.on("ai-message", async (payload) => {
                 if (!payload) {
-                    return 'payload required'
+                    return
                 };
 
-                await messageModel.create({
+                const message = await messageModel.create({
                     user: socket.user._id,
                     chat: payload.chatId,
                     content: payload.title,
                     role: "user"
+                });
+
+
+                const vectors = await genrateEmmbeding(payload.title);
+
+                const vectorMemory = await queryVectorMemory({
+                    queryvector: vectors,
+                    limit: 1,
+                    metadata: {}
+                });
+
+                await createVectorMemory({
+                    vectors,
+                    messageId: message._id,
+                    metadata: {
+                        user: socket.user._id,
+                        chat: payload.chatId,
+                        text: payload.title
+                    }
                 });
 
                 const chatHistory = (await messageModel
@@ -57,14 +79,27 @@ async function initializeSokets(httpServer) {
                     }
                 }));
 
-                await messageModel.create({
+                const response_message = await messageModel.create({
                     user: socket.user._id,
                     chat: payload.chatId,
                     content: response,
                     role: "model"
                 });
 
+                const responsevectors = await genrateEmmbeding(response);
+
+                await createVectorMemory({
+                    vectors: responsevectors,
+                    messageId: response_message._id,
+                    metadata: {
+                        user: socket.user._id,
+                        chat: payload.chatId,
+                        text: response
+                    }
+                });
+
                 socket.emit("ai-response", {
+                    title: payload.title,
                     response
                 });
             });
