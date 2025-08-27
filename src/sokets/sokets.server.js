@@ -123,7 +123,7 @@ async function initializeSokets(httpServer) {
         });
     });
 } catch (error) {
-    console.log('internet connection required');
+    return 'internet connection required'
 }
 
     });
