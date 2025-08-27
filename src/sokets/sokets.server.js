@@ -52,7 +52,9 @@ async function initializeSokets(httpServer) {
                 const vectorMemory = await queryVectorMemory({
                     queryvector: vectors,
                     limit: 1,
-                    metadata: {}
+                    metadata: {
+                        user:socket.user._id
+                    }
                 });
 
                 await createVectorMemory({
@@ -72,12 +74,31 @@ async function initializeSokets(httpServer) {
                     .lean())
                     .reverse();
 
-                const response = await genrateResponse(chatHistory.map((item) => {
+                const sort_term = chatHistory.map((item) => {
                     return {
                         role: item.role,
                         parts: [{ text: item.content }]
                     }
-                }));
+                });
+
+                const long_term = [
+                    {
+                        role: "user",
+                        parts: [
+                            {
+                                text: `These are some previous messages for the chat. Use them to generate a response:\n${Array.isArray(vectorMemory)
+                                        ? vectorMemory
+                                            .map(item => item?.metadata?.text ?? "")
+                                            .filter(Boolean)
+                                            .join("\n")
+                                        : ""
+                                    }`
+                            }
+                        ]
+                    }
+                ];
+
+                const response = await genrateResponse([...long_term, ...sort_term]);
 
                 const response_message = await messageModel.create({
                     user: socket.user._id,
