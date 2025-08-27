@@ -3,10 +3,8 @@ const cookie = require("cookie");
 const userModel = require("../models/user.model");
 const jwt = require("jsonwebtoken");
 const messageModel = require("../models/message.model");
-
 const { genrateResponse, genrateEmmbeding } = require("../services/ai.service");
 const { createVectorMemory, queryVectorMemory } = require("../services/vector.service");
-const { text } = require("express");
 
 
 async function initializeSokets(httpServer) {
@@ -34,99 +32,99 @@ async function initializeSokets(httpServer) {
 
     io.on("connection", (socket) => {
         try {
-            socket.on("ai-message", async (payload) => {
-                if (!payload) {
-                    return
-                };
-
-                const message = await messageModel.create({
-                    user: socket.user._id,
-                    chat: payload.chatId,
-                    content: payload.title,
-                    role: "user"
-                });
-
-
-                const vectors = await genrateEmmbeding(payload.title);
-
-                const vectorMemory = await queryVectorMemory({
-                    queryvector: vectors,
-                    limit: 1,
-                    metadata: {
-                        user:socket.user._id
-                    }
-                });
-
-                await createVectorMemory({
-                    vectors,
-                    messageId: message._id,
-                    metadata: {
-                        user: socket.user._id,
-                        chat: payload.chatId,
-                        text: payload.title
-                    }
-                });
-
-                const chatHistory = (await messageModel
-                    .find({ chat: payload.chatId })
-                    .sort({ createdAt: -1 })
-                    .limit(10)
-                    .lean())
-                    .reverse();
-
-                const sort_term = chatHistory.map((item) => {
-                    return {
-                        role: item.role,
-                        parts: [{ text: item.content }]
-                    }
-                });
-
-                const long_term = [
-                    {
-                        role: "user",
-                        parts: [
-                            {
-                                text: `These are some previous messages for the chat. Use them to generate a response:\n${Array.isArray(vectorMemory)
-                                        ? vectorMemory
-                                            .map(item => item?.metadata?.text ?? "")
-                                            .filter(Boolean)
-                                            .join("\n")
-                                        : ""
-                                    }`
-                            }
-                        ]
-                    }
-                ];
-
-                const response = await genrateResponse([...long_term, ...sort_term]);
-
-                const response_message = await messageModel.create({
-                    user: socket.user._id,
-                    chat: payload.chatId,
-                    content: response,
-                    role: "model"
-                });
-
-                const responsevectors = await genrateEmmbeding(response);
-
-                await createVectorMemory({
-                    vectors: responsevectors,
-                    messageId: response_message._id,
-                    metadata: {
-                        user: socket.user._id,
-                        chat: payload.chatId,
-                        text: response
-                    }
-                });
-
-                socket.emit("ai-response", {
-                    title: payload.title,
-                    response
-                });
-            });
-        } catch (error) {
-            console.log('internet conection required')
+    socket.on("ai-message", async (payload) => {
+        if (!payload) {
+            return;
         }
+
+        const [message, vectors] = await Promise.all([
+            messageModel.create({
+                user: socket.user._id,
+                chat: payload.chatId,
+                content: payload.title,
+                role: "user"
+            }),
+            genrateEmmbeding(payload.title)
+        ]);
+
+        // createVectorMemory needs to run after `vectors` is resolved
+        await createVectorMemory({
+            vectors,
+            messageId: message._id,
+            metadata: {
+                user: socket.user._id,
+                chat: payload.chatId,
+                text: payload.title
+            }
+        });
+
+        const [vectorMemory, chatHistory] = await Promise.all([
+            queryVectorMemory({
+                queryvector: vectors,
+                limit: 1,
+                metadata: { user: socket.user._id }
+            }),
+            messageModel
+                .find({ chat: payload.chatId })
+                .sort({ createdAt: -1 })
+                .limit(10)
+                .lean()
+                .then(results => results.reverse())
+        ]);
+
+        const sort_term = chatHistory.map((item) => ({
+            role: item.role,
+            parts: [{ text: item.content }]
+        }));
+
+        const long_term = [
+            {
+                role: "user",
+                parts: [
+                    {
+                        text: `These are some previous messages for the chat. Use them to generate a response:\n${
+                            Array.isArray(vectorMemory)
+                                ? vectorMemory
+                                    .map(item => item?.metadata?.text ?? "")
+                                    .filter(Boolean)
+                                    .join("\n")
+                                : ""
+                        }`
+                    }
+                ]
+            }
+        ];
+
+        const response = await genrateResponse([...long_term, ...sort_term]);
+
+        socket.emit("ai-response", {
+            title: payload.title,
+            response
+        });
+
+        const [response_message, responsevectors] = await Promise.all([
+            messageModel.create({
+                user: socket.user._id,
+                chat: payload.chatId,
+                content: response,
+                role: "model"
+            }),
+            genrateEmmbeding(response)
+        ]);
+
+        await createVectorMemory({
+            vectors: responsevectors,
+            messageId: response_message._id,
+            metadata: {
+                user: socket.user._id,
+                chat: payload.chatId,
+                text: response
+            }
+        });
+    });
+} catch (error) {
+    console.log('internet connection required');
+}
 
     });
 };

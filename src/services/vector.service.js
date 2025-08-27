@@ -16,7 +16,7 @@ async function queryVectorMemory({ queryvector, limit = 5, metadata }) {
     const data = ownGPT.query({
         vector: queryvector,
         topK: limit,
-        filter: metadata ?  {metadata} : undefined,
+        filter: metadata ?  metadata : undefined,
         includeMetadata: true
     });
 
